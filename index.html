@@ -358,6 +358,32 @@ body.dark .seg button.on{color:#fff}
 body.dark .help{box-shadow:0 10px 26px rgba(0,0,0,.35)}
 body.dark .login{background:linear-gradient(135deg,#0d1a44,#15308a 55%,#1e4fd8)}
 
+
+/* ---------- bell / deteriorating ---------- */
+.bellwrap{position:relative}
+.bell{position:relative;width:40px;height:36px;border-radius:999px;border:0;background:var(--card);box-shadow:var(--shadow);display:grid;place-items:center;color:var(--ink)}
+.bell svg.i{width:18px;height:18px}
+.bell .bn{position:absolute;top:-4px;right:-4px;background:var(--bad);color:#fff;border-radius:999px;font-size:10.5px;font-weight:700;line-height:18px;min-width:18px;padding:0 5px;box-shadow:0 0 0 2px var(--bg);animation:pulseDot 2s infinite}
+.bpanel{position:absolute;right:0;top:46px;width:360px;max-width:88vw;background:var(--card);border-radius:20px;box-shadow:var(--shadow-lg);z-index:15;overflow:hidden;animation:pop .18s ease-out;text-align:left}
+.bhead{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+.bhead b{font-family:Poppins;font-size:15px}
+.blist{max-height:380px;overflow:auto;padding:6px}
+.bitem{display:flex;gap:11px;align-items:flex-start;width:100%;border:0;background:none;text-align:left;padding:10px;border-radius:14px;position:relative}
+.bitem:hover{background:var(--chip)}
+.bitem.unread::after{content:"";position:absolute;right:12px;top:16px;width:8px;height:8px;border-radius:50%;background:var(--brand)}
+.bitem b{display:block;font-size:13.5px;padding-right:16px}
+.bitem span span,.bitem .grow>span{display:block;font-size:12.5px;color:var(--muted)}
+.bic{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;flex:none}
+.bic svg.i{width:17px;height:17px}
+.chip.det{background:#f0eaff;color:#6d4fe0}
+body.dark .chip.det{background:#261f4a;color:#b9a5ff}
+.row.detr::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:4px;border-radius:0 4px 4px 0;background:#8b6cf0}
+.row.detr{background:linear-gradient(90deg,#f6f2ff,var(--card) 45%)}
+body.dark .row.detr{background:linear-gradient(90deg,#211a40,var(--card) 45%)}
+.banner.det{background:linear-gradient(90deg,#efe9ff,#f8f5ff);color:#4b2fb8}
+body.dark .banner.det{background:#211a40;color:#c6b6ff}
+body.dark .bitem.unread::after{background:#8fb0ff}
+
 /* ---------- responsive ---------- */
 @media(max-width:1100px){.cols{grid-template-columns:1fr}.hero-art{width:200px}}
 @media(max-width:900px){.tiles{grid-template-columns:repeat(2,1fr)}}
@@ -484,12 +510,14 @@ function seed(){
       if(i%6===0) p.visits.push({day:0,by:'d2',time:time(9,10),notes:'Reviewed, plan unchanged',treatment:fever?'Antipyretic':'Observation'});
     }
   });
+  s.waitlist=[{id:'W1',name:'Fatima Sheikh',age:51,gender:'F',phone:'98200 41122',addedDay:0,time:'07:55',priority:'urgent'},{id:'W2',name:'Rahul Menon',age:34,gender:'M',phone:'98330 77810',addedDay:0,time:'08:40',priority:'normal'},{id:'W3',name:'Arjun Nair',age:27,gender:'M',phone:'',addedDay:0,time:'10:15',priority:'normal'}];
+  s.nextW=10;s.seen={};
   return s;
 }
 
 /* ============ State ============ */
 let S, session=null, view={tab:null,patient:null,filter:'due',q:''};
-function load(){try{const raw=localStorage.getItem(KEY);if(raw){const o=JSON.parse(raw);S=o.S;session=o.session||null;return}}catch(e){} S=seed();}
+function load(){try{const raw=localStorage.getItem(KEY);if(raw){const o=JSON.parse(raw);S=o.S;session=o.session||null;S.waitlist=S.waitlist||[];S.seen=S.seen||{};S.nextW=S.nextW||10;return}}catch(e){} S=seed();}
 function save(){try{localStorage.setItem(KEY,JSON.stringify({S,session}))}catch(e){}}
 function reset(){try{localStorage.removeItem(KEY)}catch(e){} S=seed(); session=null; view={tab:null,patient:null,filter:'due',q:''}; render(); toast('Demo data reset');}
 
@@ -516,6 +544,15 @@ function streak(p){
   return n;
 }
 const eligible=p=>streak(p)>=FREE_DAYS_TO_CURE;
+function deteriorating(p){
+  if(p.status!=='admitted')return false;
+  const by={};p.temps.forEach(t=>by[t.day]=t.value);const last=lastTemp(p);
+  if(!last||last.value<FEVER)return false;const d=last.day;
+  if(by[d]!=null&&by[d-1]!=null&&by[d-2]!=null&&by[d]-by[d-1]>=0.2&&by[d-1]-by[d-2]>=0.2)return 'rising';
+  if(p.temps.filter(t=>t.value>=FEVER).length>=7)return 'prolonged';
+  return false;
+}
+const urgency=p=>isCritical(p)?2:deteriorating(p)?1:0;
 const isCritical=p=>{const t=tempToday(p)||lastTemp(p);return t&&t.value>=CRITICAL};
 function log(msg){S.log.unshift({day:S.day,time:nowTime(),by:session,msg});S.log=S.log.slice(0,200)}
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.remove('hidden');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.add('hidden'),2800)}
@@ -525,11 +562,12 @@ function commit(msg){if(msg)log(msg);save();render()}
 function tabsFor(u){
   if(u.role==='nurse') return [['rounds','Today\'s rounds'],['patients','All patients']];
   if(u.role==='doctor') return [['queue','My visits'],['discharge','Discharge'],['patients','All patients']].concat(u.head?[['reports','Quality & reports']]:[]);
-  return [['rooms','Rooms'],['dqueue','Discharges'],['admit','Admit patient'],['reports','Reports']];
+  return [['rooms','Rooms'],['dqueue','Discharges'],['admit','Admissions'],['reports','Reports']];
 }
 function badge(tab){
   if(tab==='discharge') return active().filter(p=>p.status==='admitted'&&eligible(p)).length;
   if(tab==='dqueue') return active().filter(p=>p.status==='discharge_ready').length;
+  if(tab==='admit') return S.waitlist.length;
   return 0;
 }
 
@@ -627,13 +665,43 @@ function phead(title,sub,icon,c='blue'){const k=TC[c];return `<div class="phead"
 
 
 /* ============ Theme, clock, shift ============ */
-let DARK=false;try{DARK=localStorage.getItem('ww_theme')==='dark'}catch(e){}
+let DARK=true;try{DARK=localStorage.getItem('ww_theme')!=='light'}catch(e){}
 function applyTheme(){document.body.classList.toggle('dark',DARK)}
 function toggleTheme(){DARK=!DARK;try{localStorage.setItem('ww_theme',DARK?'dark':'light')}catch(e){}applyTheme()}
 const tglHTML=()=>`<button class="tgl" onclick="toggleTheme()" title="Switch light / dark mode" aria-label="Toggle dark mode"><span class="o">${ico(DARK?'sun':'moon')}</span><span class="k">${ico(DARK?'moon':'sun')}</span></button>`;
 function shiftNow(){const h=new Date().getHours();return h>=6&&h<14?['Morning shift','06:00–14:00']:h>=14&&h<22?['Evening shift','14:00–22:00']:['Night shift','22:00–06:00']}
 function clockText(){const d=new Date();return [String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'),':'+String(d.getSeconds()).padStart(2,'0')]}
-function statusbar(){const [sh,hrs]=shiftNow(),[hm,ss]=clockText();return `<div class="statusbar"><span class="shift"><i></i>${sh}<small>${hrs}</small></span><span class="clock">${ico('clock')}<span class="hm">${hm}</span><span class="sec">${ss}</span></span>${tglHTML()}</div>`}
+function notifs(){
+  const u=me(),out=[];if(!u)return out;const adm=active().filter(p=>p.status==='admitted');
+  if(u.role==='doctor'){
+    adm.filter(isCritical).forEach(p=>{const t=tempToday(p)||lastTemp(p);out.push({id:`c-${p.id}-${S.day}`,i:'alert',c:'red',t:`Critical fever: ${p.name}`,x:`Room ${p.room} · ${t.value.toFixed(1)}°C`,go:`openP('${p.id}')`})});
+    adm.filter(p=>!isCritical(p)&&deteriorating(p)).forEach(p=>out.push({id:`d-${p.id}-${S.day}`,i:'flame',c:'violet',t:`Deteriorating: ${p.name}`,x:`Room ${p.room} · ${deteriorating(p)==='rising'?'fever rising 3 days':'fever on 7+ days'}`,go:`openP('${p.id}')`}));
+    Object.keys(S.reminders).forEach(id=>{const p=P(id);if(p&&p.status==='admitted')out.push({id:`r-${id}-${S.reminders[id]}`,i:'bell',c:'amber',t:`Admin asked about ${p.name}`,x:`Room ${p.room} · eligible, waiting for your approval`,go:"go('discharge')"})});
+    adm.filter(eligible).forEach(p=>{if(!S.reminders[p.id])out.push({id:`e-${p.id}`,i:'exit',c:'green',t:`${p.name} can be discharged`,x:`Room ${p.room} · ${streak(p)} fever-free days`,go:"go('discharge')"})});
+  }
+  if(u.role==='admin'){
+    active().filter(p=>p.status==='discharge_ready').forEach(p=>out.push({id:`a-${p.id}-${p.approvedDay}`,i:'exit',c:'green',t:`Discharge approved: ${p.name}`,x:`Room ${p.room} · by ${U(p.approvedBy).name}`,go:"go('dqueue')"}));
+    const fr=freeRooms();if(fr.length&&S.waitlist.length)out.push({id:`f-${fr.join('.')}-${S.waitlist.length}`,i:'bed',c:'teal',t:`${fr.length} room${fr.length>1?'s':''} free, ${S.waitlist.length} waiting`,x:`Next in line: ${waitSorted()[0].name}`,go:"go('admit')"});
+    S.waitlist.filter(w=>w.priority==='urgent').forEach(w=>out.push({id:`u-${w.id}`,i:'alert',c:'red',t:`Urgent admission waiting: ${w.name}`,x:`Added ${short(w.addedDay)} ${w.time}`,go:"go('admit')"}));
+  }
+  if(u.role==='nurse'){
+    const due=adm.filter(p=>!tempToday(p)).length;if(due)out.push({id:`due-${S.day}-${due}`,i:'clock',c:'amber',t:`${due} temperature${due>1?'s':''} still due today`,x:'Open today\'s rounds',go:"view.filter='due';go('rounds')"});
+    adm.filter(isCritical).forEach(p=>out.push({id:`n-${p.id}-${S.day}`,i:'alert',c:'red',t:`Re-check ${p.name}`,x:`Room ${p.room} · critical fever`,go:`openP('${p.id}')`}));
+    adm.filter(p=>p.admittedDay===S.day&&!tempToday(p)).forEach(p=>out.push({id:`new-${p.id}`,i:'plus',c:'teal',t:`New admission: ${p.name}`,x:`Room ${p.room} · first reading due`,go:`openP('${p.id}')`}));
+  }
+  return out;
+}
+function bellHTML(){
+  const n=notifs(),un=n.filter(x=>!S.seen[x.id]).length;
+  return `<span class="bellwrap"><button class="bell" onclick="event.stopPropagation();view.bell=!view.bell;render()" aria-label="Notifications">${ico('bell')}${un?`<span class="bn">${un>9?'9+':un}</span>`:''}</button>${view.bell?`<div class="bpanel" onclick="event.stopPropagation()"><div class="bhead"><b>Notifications</b>${un?`<button class="link" onclick="markAllRead()">Mark all as read</button>`:''}</div><div class="blist">${n.length?n.slice(0,14).map(x=>{const c=TC[x.c];return `<button class="bitem ${S.seen[x.id]?'':'unread'}" onclick="openNotif('${x.id}',&quot;${x.go.replace(/"/g,'&quot;')}&quot;)"><span class="bic" style="background:${c[0]};color:${c[1]}">${ico(x.i)}</span><span class="grow"><b>${esc(x.t)}</b><span>${esc(x.x)}</span></span></button>`}).join(''):'<div class="why" style="padding:18px;text-align:center">You\'re all caught up.</div>'}</div></div>`:''}</span>`;
+}
+function openNotif(id,code){S.seen[id]=1;view.bell=false;save();
+  let m=code.match(/openP\('([^']+)'\)/);if(m)return openP(m[1]);
+  if(/view\.filter='due'/.test(code))view.filter='due';
+  m=code.match(/go\('([^']+)'\)/);if(m)return go(m[1]);render()}
+function markAllRead(){notifs().forEach(x=>S.seen[x.id]=1);save();render()}
+document.addEventListener('click',e=>{if(view.bell&&!e.target.closest('.bellwrap')){view.bell=false;render()}});
+function statusbar(){const [sh,hrs]=shiftNow(),[hm,ss]=clockText();return `<div class="statusbar"><span class="shift"><i></i>${sh}<small>${hrs}</small></span>${bellHTML()}<span class="clock">${ico('clock')}<span class="hm">${hm}</span><span class="sec">${ss}</span></span>${tglHTML()}</div>`}
 setInterval(()=>{const [hm,ss]=clockText();document.querySelectorAll('.clock .hm').forEach(e=>e.textContent=hm);document.querySelectorAll('.clock .sec').forEach(e=>e.textContent=ss)},1000);
 document.querySelectorAll('.tgl').forEach(()=>{});
 const _origToggle=toggleTheme;
@@ -763,6 +831,7 @@ function statusChips(p){
   else if(p.status==='admitted') c.push('<span class="chip warn">Temp due</span>');
   if(p.status==='admitted'){ if(v) c.push('<span class="chip ok">Seen by doctor</span>'); else c.push('<span class="chip">Doctor visit due</span>'); }
   if(isCritical(p)) c.push('<span class="chip bad">Critical</span>');
+  const dt=deteriorating(p); if(dt) c.push(`<span class="chip det">${dt==='rising'?'Fever rising 3 days':'Fever on 7+ days'}</span>`);
   if(p.status==='admitted'&&eligible(p)) c.push('<span class="chip info">Eligible for discharge</span>');
   return c.join(' ');
 }
@@ -794,15 +863,15 @@ function patientsView(){
 /* ---------- Doctor: queue ---------- */
 function queueView(){
   const adm=active().filter(p=>p.status==='admitted');
-  const ready=adm.filter(p=>tempToday(p)&&!visitToday(p)).sort((a,b)=>tempToday(b).value-tempToday(a).value);
-  const waiting=adm.filter(p=>!tempToday(p)).sort((a,b)=>a.room-b.room);
+  const ready=adm.filter(p=>tempToday(p)&&!visitToday(p)).sort((a,b)=>urgency(b)-urgency(a)||tempToday(b).value-tempToday(a).value);
+  const waiting=adm.filter(p=>!tempToday(p)).sort((a,b)=>urgency(b)-urgency(a)||a.room-b.room);
   const seen=adm.filter(visitToday);
-  const crit=ready.filter(isCritical).length;
-  const card=(p,mode)=>{const t=tempToday(p);return `<div class="row ${isCritical(p)?'crit':''} ${mode==='wait'?'dim':''}">${roomBox(p)}<div class="grow"><div class="name" onclick="openP('${p.id}')">${esc(p.name)}</div><div class="meta"><span>${p.age}${p.gender} · Day ${dayOfStay(p)}</span>${statusChips(p)}</div></div><div class="acts">${mode==='ready'?`<button class="btn primary sm" onclick="visitModal('${p.id}')">Record visit</button>`:mode==='wait'?`<span class="why">Waiting for nurse</span>`:`<button class="btn sm" onclick="openP('${p.id}')">View</button>`}</div></div>`};
+  const crit=ready.filter(isCritical).length, det=adm.filter(p=>!isCritical(p)&&deteriorating(p)).length;
+  const card=(p,mode)=>{const t=tempToday(p);return `<div class="row ${isCritical(p)?'crit':deteriorating(p)?'detr':''} ${mode==='wait'?'dim':''}">${roomBox(p)}<div class="grow"><div class="name" onclick="openP('${p.id}')">${esc(p.name)}</div><div class="meta"><span>${p.age}${p.gender} · Day ${dayOfStay(p)}</span>${statusChips(p)}</div></div><div class="acts">${mode==='ready'?`<button class="btn primary sm" onclick="visitModal('${p.id}')">Record visit</button>`:mode==='wait'?`<span class="why">Waiting for nurse</span>`:`<button class="btn sm" onclick="openP('${p.id}')">View</button>`}</div></div>`};
   const elig=adm.filter(eligible).length;
   return `${hero({title:ready.length?`${ready.length} patient${ready.length>1?'s are':' is'} ready to see`:'No one is ready yet',text:'Only patients whose temperature has been taken today appear here, highest fever first. No more walking into a room too early.',cta:`${ready.length?`<button class="pill mint" onclick="visitModal('${ready[0].id}')">${ico('steth')} See next patient</button>`:''}<button class="pill ghost" onclick="go('discharge')">${elig} eligible for discharge</button>`,ringPct:Math.round(seen.length/Math.max(1,adm.length)*100),ringBig:seen.length+'/'+adm.length,ringSmall:'seen today',artKind:me().head?'head':'doctor'})}
-  ${crit?`<div class="banner bad"><b>${crit} critical patient${crit>1?'s':''}</b> with temperature ≥ ${CRITICAL.toFixed(1)}°C. Please see them first.</div>`:''}
-  ${tiles([{c:'blue',i:'steth',n:ready.length,l:'Ready to see',go:"document.getElementById('ready').scrollIntoView({behavior:'smooth'})"},{c:'red',i:'alert',n:adm.filter(isCritical).length,l:'Critical',go:"document.getElementById('ready').scrollIntoView({behavior:'smooth'})"},{c:'amber',i:'clock',n:waiting.length,l:'Waiting for nurse',go:"document.getElementById('waiting').scrollIntoView({behavior:'smooth'})"},{c:'green',i:'exit',n:elig,l:'Eligible to discharge',go:"go('discharge')"}])}
+  ${crit?`<div class="banner bad"><b>${crit} critical patient${crit>1?'s':''}</b> with temperature ≥ ${CRITICAL.toFixed(1)}°C. Please see them first.</div>`:''}${det?`<div class="banner det"><b>${det} patient${det>1?'s are':' is'} deteriorating</b>: fever rising 3 days in a row, or fever on 7+ days. They're moved up your queue.</div>`:''}
+  ${tiles([{c:'blue',i:'steth',n:ready.length,l:'Ready to see',go:"document.getElementById('ready').scrollIntoView({behavior:'smooth'})"},{c:'red',i:'alert',n:adm.filter(p=>urgency(p)>0).length,l:'Critical / worsening',go:"document.getElementById('ready').scrollIntoView({behavior:'smooth'})"},{c:'amber',i:'clock',n:waiting.length,l:'Waiting for nurse',go:"document.getElementById('waiting').scrollIntoView({behavior:'smooth'})"},{c:'green',i:'exit',n:elig,l:'Eligible to discharge',go:"go('discharge')"}])}
   <h2 id="ready">Ready to see (${ready.length})</h2><div class="list">${ready.map(p=>card(p,'ready')).join('')||'<div class="empty">No one is ready yet. Patients appear here as soon as a nurse records their temperature.</div>'}</div>
   <h2 id="waiting">Waiting for temperature (${waiting.length})</h2><div class="list">${waiting.slice(0,8).map(p=>card(p,'wait')).join('')}${waiting.length>8?`<div class="why">+ ${waiting.length-8} more</div>`:''}</div>
   <h2>Seen today (${seen.length})</h2><div class="list">${seen.map(p=>card(p,'seen')).join('')||'<div class="empty">None yet.</div>'}</div>`;
@@ -824,7 +893,7 @@ function roomsView(){
   const col=p=>!p?'#b8c5e0':p.status==='discharge_ready'?'#2f6bff':eligible(p)?'#8b6cf0':isCritical(p)?'#ef4d5a':'#0ea371';
   const pend=active().filter(p=>p.status==='admitted'&&eligible(p)).length, occ=ROOMS-free;
   return `${hero({title:free?`${free} room${free>1?'s':''} free for admission`:'The centre is full today',text:ready?`${ready} patient${ready>1?'s are':' is'} approved for discharge. Completing them frees rooms for the next admissions.`:'No discharges approved yet. Eligible patients are waiting on a doctor’s sign-off.',cta:`${ready?`<button class="pill mint" onclick="go('dqueue')">${ico('exit')} Complete discharges</button>`:''}${free?`<button class="pill ghost" onclick="go('admit')">Admit patient</button>`:''}`,ringPct:Math.round(occ/ROOMS*100),ringBig:occ+'/'+ROOMS,ringSmall:'occupied',artKind:'admin'})}
-  ${tiles([{c:'blue',i:'bed',n:occ,l:'Occupied rooms',go:"0"},{c:'teal',i:'plus',n:free,l:'Free rooms',go:"go('admit')"},{c:'green',i:'exit',n:ready,l:'Ready to discharge',go:"go('dqueue')"},{c:'violet',i:'clock',n:pend,l:'Awaiting doctor',go:"go('dqueue')"}])}
+  ${tiles([{c:'blue',i:'users',n:S.waitlist.length,l:'Waiting for a bed',go:"go('admit')"},{c:'teal',i:'plus',n:free,l:'Free rooms',go:"go('admit')"},{c:'green',i:'exit',n:ready,l:'Ready to discharge',go:"go('dqueue')"},{c:'violet',i:'clock',n:pend,l:'Awaiting doctor',go:"go('dqueue')"}])}
   <h2>Room board</h2>
   <div class="legend"><span style="--c:#0ea371">Admitted</span><span style="--c:#ef4d5a">Critical</span><span style="--c:#8b6cf0">Eligible (awaiting doctor)</span><span style="--c:#2f6bff">Approved for discharge</span><span style="--c:#b8c5e0">Free</span></div>
   <div class="grid">${Array.from({length:ROOMS},(_,i)=>i+1).map(r=>{const p=by[r];return `<button class="tile ${p?'':'free'}" style="--c:${col(p)}" onclick="${p?`openP('${p.id}')`:`view.room=${r};go('admit')`}"><b>Room ${r}</b><span>${p?esc(p.name):'Free – admit'}</span><span>${p?(p.status==='discharge_ready'?'Discharge ready':'Day '+dayOfStay(p)):''}</span></button>`}).join('')}</div>`;
@@ -840,11 +909,28 @@ function adminDischargeView(){
 }
 
 /* ---------- Admin: admit ---------- */
+function freeRooms(){const used=new Set(active().map(p=>p.room));return Array.from({length:ROOMS},(_,i)=>i+1).filter(r=>!used.has(r))}
+function waitSorted(){return [...S.waitlist].sort((a,b)=>(b.priority==='urgent')-(a.priority==='urgent')||a.addedDay-b.addedDay||a.time.localeCompare(b.time))}
+function waitListHTML(free){
+  const w=waitSorted();
+  return `<h2>Waiting list <span class="why" style="font-weight:500">(${w.length})</span></h2><div class="list">${w.map((x,i)=>`<div class="row"><div class="room" style="font-size:15px"><div><small>NO.</small>${i+1}</div></div><div class="grow"><div class="name">${esc(x.name)}</div><div class="meta"><span>${x.age}${x.gender} · waiting since ${short(x.addedDay)} ${x.time}</span>${x.priority==='urgent'?'<span class="chip bad">Urgent</span>':'<span class="chip">Normal</span>'}</div></div><div class="acts">${free.length?`<button class="btn primary sm" onclick="admitFromWait('${x.id}',${free[0]})">Admit → Room ${free[0]}</button>`:''}<button class="btn sm" onclick="removeWait('${x.id}')">Remove</button></div></div>`).join('')||'<div class="empty">Nobody is waiting for a bed.</div>'}</div>`;
+}
 function admitView(){
-  const used=new Set(active().map(p=>p.room));const free=Array.from({length:ROOMS},(_,i)=>i+1).filter(r=>!used.has(r));
-  if(!free.length) return `${phead('Admit patient','Assign a new patient to a free room','plus','teal')}<div class="banner warn"><b>No free rooms.</b> All ${ROOMS} rooms are occupied. ${active().filter(p=>p.status==='discharge_ready').length} approved discharge(s) are pending. <button class="link" onclick="go('dqueue')">Go to discharges ›</button></div>`;
+  const free=freeRooms();
+  if(!free.length) return `${phead('Admissions','The centre is full. Add incoming patients to the waiting list and admit them as rooms free up.','plus','teal')}
+  <div class="banner warn"><b>No free rooms.</b> All ${ROOMS} rooms are occupied. ${active().filter(p=>p.status==='discharge_ready').length} approved discharge(s) are pending. <button class="link" onclick="go('dqueue')">Go to discharges ›</button></div>
+  <div class="card" style="max-width:560px;padding:24px"><b style="font-family:Poppins;font-size:16px">Add to waiting list</b><form onsubmit="addWait(event)">
+    <label>Full name *</label><input class="inp" name="name" required maxlength="60">
+    <div style="display:flex;gap:10px"><div style="flex:1"><label>Age *</label><input class="inp" name="age" type="number" min="0" max="120" required></div><div style="flex:1"><label>Sex *</label><select class="inp" name="gender"><option value="M">Male</option><option value="F">Female</option><option value="O">Other</option></select></div></div>
+    <div style="display:flex;gap:10px"><div style="flex:1"><label>Phone</label><input class="inp" name="phone" inputmode="tel" placeholder="Optional"></div><div style="flex:1"><label>Priority</label><select class="inp" name="priority"><option value="normal">Normal</option><option value="urgent">Urgent</option></select></div></div>
+    <div id="werr" class="err"></div><div class="mfoot"><button class="btn primary">Add to waiting list</button></div>
+  </form></div>
+  ${waitListHTML(free)}`;
   const sel=free.includes(view.room)?view.room:free[0];
-  return `${phead('Admit patient',`${free.length} room${free.length>1?'s':''} free`,'plus','teal')}
+  return `${phead('Admissions',`${free.length} room${free.length>1?'s':''} free · ${S.waitlist.length} waiting`,'plus','teal')}
+  ${S.waitlist.length?`<div class="banner info"><b>Next in line: ${esc(waitSorted()[0].name)}.</b> Admit them straight into Room ${free[0]} from the waiting list below.</div>`:''}
+  ${waitListHTML(free)}
+  <h2>Admit a new patient</h2>
   <div class="card" style="max-width:560px;padding:24px"><form onsubmit="admit(event)">
     <label>Full name *</label><input class="inp" name="name" required maxlength="60">
     <div style="display:flex;gap:10px"><div style="flex:1"><label>Age *</label><input class="inp" name="age" type="number" min="0" max="120" required></div><div style="flex:1"><label>Sex *</label><select class="inp" name="gender"><option value="M">Male</option><option value="F">Female</option><option value="O">Other</option></select></div></div>
@@ -854,6 +940,28 @@ function admitView(){
     <div id="aerr" class="err"></div>
     <div class="mfoot"><button class="btn primary">Admit to room</button></div>
   </form></div>`;
+}
+function addWait(e){
+  e.preventDefault();const f=new FormData(e.target);const name=f.get('name').trim(),age=+f.get('age');const err=m=>$('#werr').textContent=m;
+  if(name.length<2)return err('Please enter the patient\'s full name.');
+  if(!(age>=0&&age<=120))return err('Age must be between 0 and 120.');
+  if(S.waitlist.some(w=>w.name.toLowerCase()===name.toLowerCase()))return err('This person is already on the waiting list.');
+  S.waitlist.push({id:'W'+(S.nextW++),name,age,gender:f.get('gender'),phone:f.get('phone'),addedDay:S.day,time:nowTime(),priority:f.get('priority')});
+  commit(`Added ${name} to the waiting list`);toast(`${name} added to the waiting list (${S.waitlist.length} waiting).`);
+}
+function removeWait(id){const w=S.waitlist.find(x=>x.id===id);if(!w)return;S.waitlist=S.waitlist.filter(x=>x.id!==id);commit(`Removed ${w.name} from the waiting list`);toast(`${w.name} removed from the waiting list.`)}
+function admitFromWait(id,room){
+  const w=S.waitlist.find(x=>x.id===id);if(!w)return;closeM();
+  if(active().some(p=>p.room===room)){const fr=freeRooms();if(!fr.length)return toast('No free rooms right now.');room=fr[0]}
+  const p={id:'P'+(S.nextId++),name:w.name,age:w.age,gender:w.gender,phone:w.phone,room,admittedDay:S.day,status:'admitted',temps:[],visits:[]};
+  S.patients.push(p);S.waitlist=S.waitlist.filter(x=>x.id!==id);
+  commit(`Admitted ${w.name} from the waiting list to room ${room}`);toast(`${w.name} admitted to room ${room}. Nurses see them as "Temp due".`);openP(p.id);
+}
+function suggestNext(room){
+  if(!S.waitlist.length)return;const w=waitSorted()[0];
+  modal(`<h3>Room ${room} is free</h3><p class="why">Next on the waiting list${w.priority==='urgent'?' (urgent)':''}:</p>
+  <div class="row" style="box-shadow:none;background:var(--brand-soft)"><div class="room"><div><small>ROOM</small>${room}</div></div><div class="grow"><div class="name">${esc(w.name)}</div><div class="meta">${w.age}${w.gender} · waiting since ${short(w.addedDay)} ${w.time}</div></div></div>
+  <div class="mfoot"><button class="btn" onclick="closeM()">Later</button><button class="btn primary" onclick="admitFromWait('${w.id}',${room})">Admit to Room ${room}</button></div>`);
 }
 function admit(e){
   e.preventDefault();const f=new FormData(e.target);const name=f.get('name').trim(),age=+f.get('age'),room=+f.get('room');const tv=f.get('temp');
@@ -870,6 +978,16 @@ function admit(e){
 }
 
 /* ---------- Reports ---------- */
+function csvEsc(v){v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v}
+function downloadCSV(){
+  const closed=S.patients.filter(p=>p.status==='discharged'||p.status==='deceased'),dead=closed.filter(p=>p.status==='deceased').length;
+  const mort=closed.length?(dead/closed.length*100).toFixed(1):'0';
+  const rows=[['WardWatch report',fmtDate(S.day)],[],['Metric','Value'],['Closed cases',closed.length],['Recovered',closed.length-dead],['Deaths',dead],['Mortality %',mort],['Recovery %',(100-mort).toFixed(1)],['Benchmark mortality %',15],['Occupancy',active().length+'/'+ROOMS],['Waiting list',S.waitlist.length],[],
+    ['Patient ID','Name','Age','Sex','Room','Status','Admitted','Day of stay / Outcome date','Last temp (°C)','Fever-free days','Flags']];
+  S.patients.forEach(p=>{const open=p.status==='admitted'||p.status==='discharge_ready',lt=lastTemp(p);rows.push([p.id,p.name,p.age,p.gender,p.room||'',p.status.replace('_',' '),short(p.admittedDay),open?'Day '+dayOfStay(p):short(p.outcomeDay),lt?lt.value.toFixed(1):'',open?streak(p):'',open?[isCritical(p)?'critical':'',deteriorating(p)?'deteriorating':'',eligible(p)&&p.status==='admitted'?'eligible':''].filter(Boolean).join(' '):'' ])});
+  const csv=rows.map(r=>r.map(csvEsc).join(',')).join('\r\n');
+  try{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='wardwatch-report-'+(d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'))(dateOf(S.day))+'.csv';document.body.appendChild(a);a.click();a.remove();log('Downloaded CSV report');save();toast('Report downloaded (CSV).')}catch(e){toast('Download is not available in this browser.')}
+}
 function reportsView(){
   const closed=S.patients.filter(p=>p.status==='discharged'||p.status==='deceased');
   const dis=closed.filter(p=>p.status==='discharged'), dead=closed.filter(p=>p.status==='deceased');
@@ -883,7 +1001,7 @@ function reportsView(){
   const mx=Math.max(1,...weeks.map(w=>w.d+w.x));const H=140,W=520,bw=40,gap=(W-40-8*bw)/8;
   const svg=`<svg class="bars" viewBox="0 0 ${W} ${H+30}" width="100%" role="img" aria-label="Closed cases per week">${weeks.map((w,i)=>{const x=40+i*(bw+gap);const hd=w.d/mx*H,hx=w.x/mx*H;const rate=w.d+w.x?Math.round(w.x/(w.d+w.x)*100):0;return `<rect x="${x}" y="${H-hd}" width="${bw}" height="${hd}" rx="3" fill="#20c997"/><rect x="${x}" y="${H-hd-hx}" width="${bw}" height="${hx}" rx="3" fill="#ef4d5a"/><text x="${x+bw/2}" y="${H-hd-hx-5}" font-size="11" text-anchor="middle" fill="${rate>15?'#c0362c':'#5d6b7a'}">${rate}%</text><text x="${x+bw/2}" y="${H+16}" font-size="10" text-anchor="middle" fill="#5d6b7a">${w.label}</text>`}).join('')}<line x1="36" x2="${W}" y1="${H}" y2="${H}" stroke="#e3e7ec"/></svg>`;
   const over=mort>15, over30=m30>15;
-  return `${phead('Quality &amp; reports','Outcomes measured against the expected 85% recovery / 15% mortality benchmark','chart','violet')}
+  return `${phead('Quality &amp; reports','Outcomes measured against the expected 85% recovery / 15% mortality benchmark','chart','violet')}<div class="toolbar"><button class="btn primary" onclick="downloadCSV()">${ico('cal')} Download report (CSV)</button><span class="why">Summary metrics plus every patient, ready for Excel.</span></div>
   ${over||over30?`<div class="banner bad"><b>Alert:</b> mortality ${over30?'over the last 30 days':''} is ${(over30?m30:mort).toFixed(1)}%, above the 15% benchmark. Review treatment protocols.</div>`:`<div class="banner ok">Mortality is within the 15% benchmark.</div>`}
   <div class="kpis">
    <div class="card kpi"><span class="ic" style="background:${TC.green[0]};color:${TC.green[1]}">${ico('heart')}</span><div class="lab">Recovery rate (all time)</div><div class="val" style="color:${succ>=85?'var(--ok)':'var(--bad)'}">${succ.toFixed(1)}%</div><div class="tgt">Target ≥ 85% · ${dis.length} recovered of ${closed.length} closed</div></div>
@@ -998,7 +1116,7 @@ function approve(id){const p=P(id);if(!eligible(p)) return toast('Not eligible y
 function revokeModal(id){const p=P(id);modal(`<h3>Revoke discharge approval?</h3><p class="why">${esc(p.name)} will go back to the normal ward list.</p><label>Reason *</label><input id="rr" class="inp"><div id="rerr" class="err"></div><div class="mfoot"><button class="btn" onclick="closeM()">Cancel</button><button class="btn danger" onclick="revoke('${id}')">Revoke</button></div>`)}
 function revoke(id){const r=$('#rr').value.trim();if(r.length<3)return $('#rerr').textContent='Please give a reason.';const p=P(id);p.status='admitted';p.approvedDay=null;closeM();commit(`Revoked discharge for ${p.name}: ${r}`);toast('Approval revoked.')}
 function dischargeModal(id){const p=P(id);modal(`<h3>Complete discharge</h3><p>${esc(p.name)} leaves room ${p.room}. The room becomes free for a new admission.</p><p class="why">Approved by ${esc(U(p.approvedBy).name)} on ${short(p.approvedDay)}.</p><div class="mfoot"><button class="btn" onclick="closeM()">Cancel</button><button class="btn primary" onclick="discharge('${id}')">Discharge</button></div>`)}
-function discharge(id){const p=P(id);if(p.status!=='discharge_ready')return toast('Needs doctor approval first.');const r=p.room;p.status='discharged';p.outcomeDay=S.day;p.room=null;closeM();commit(`Discharged ${p.name} from room ${r}`);confetti();toast(`🎉 ${p.name} is going home! Room ${r} is now free.`);const t=$('#toast');t.classList.add('party');setTimeout(()=>t.classList.remove('party'),2900)}
+function discharge(id){const p=P(id);if(p.status!=='discharge_ready')return toast('Needs doctor approval first.');const r=p.room;p.status='discharged';p.outcomeDay=S.day;p.room=null;closeM();commit(`Discharged ${p.name} from room ${r}`);confetti();toast(`🎉 ${p.name} is going home! Room ${r} is now free.`);const t=$('#toast');t.classList.add('party');setTimeout(()=>t.classList.remove('party'),2900);setTimeout(()=>suggestNext(r),1300)}
 function deathModal(id){const p=P(id);modal(`<h3>Record patient death</h3><p class="why">This closes ${esc(p.name)}'s record, frees room ${p.room} and counts towards the mortality rate. It can't be undone in the app.</p><label>Type the room number (${p.room}) to confirm</label><input id="dc" class="inp" inputmode="numeric"><label>Notes</label><input id="dn" class="inp"><div id="derr" class="err"></div><div class="mfoot"><button class="btn" onclick="closeM()">Cancel</button><button class="btn danger" onclick="death('${id}')">Confirm</button></div>`)}
 function death(id){const p=P(id);if($('#dc').value.trim()!==String(p.room))return $('#derr').textContent='Room number does not match.';const r=p.room;p.status='deceased';p.outcomeDay=S.day;p.room=null;p.deathNote=$('#dn').value;closeM();commit(`Recorded death of ${p.name} (room ${r})`);toast('Recorded. Room '+r+' is now free.')}
 function remind(id){S.reminders[id]=S.day;commit(`Reminded doctors about discharge for ${P(id).name}`);toast('Reminder sent to doctors.')}
